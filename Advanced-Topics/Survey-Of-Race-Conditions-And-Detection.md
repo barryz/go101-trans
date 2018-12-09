@@ -48,7 +48,7 @@ http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 log.Fatal(http.ListenAndServe(":8080", nil))
 ```
 
-当负载(源码](https://github.com/dm03514/grokking-go/blob/83cf3d8313a7c797c317d7b5b2d85b4df89a0401/candidates-and-contexts/races/explict_test.go#L22))增加时，上述代码中的竞态条件就会出现。
+当负载([源码](https://github.com/dm03514/grokking-go/blob/83cf3d8313a7c797c317d7b5b2d85b4df89a0401/candidates-and-contexts/races/explict_test.go#L22))增加时，上述代码中的竞态条件就会出现。
 下面的测试用例使用了200个Goroutines模拟了200个请求。我们期待的是每当一个请求进来时，计数器都会递增，但最终结果却不是这样：
 
 ```bash
