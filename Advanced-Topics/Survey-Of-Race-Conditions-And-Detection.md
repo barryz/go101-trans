@@ -10,7 +10,7 @@ Go提供了绝对会令人称奇的并发原语，真正地实现了将并发当
 
 这篇文章将会介绍竞态条件，并且介绍为什么并发编程这么困难。然后，本文将会介绍如何调查、检测和预防Go中竞态条件，
 以及相应的解决方案。最后是动手实践部分，我发现它（实践所用的技术）可以有效得识别竞态条件，
-我称之为***候选人和上下文***。（本文所有的示例代码都可以在[grokking-go github repo](https://github.com/dm03514/grokking-go/pull/3/files)内找到。
+我称之为***候选项和上下文***。（本文所有的示例代码都可以在[grokking-go github repo](https://github.com/dm03514/grokking-go/pull/3/files)内找到。
 
 ## 并发的危险之处
 
@@ -150,3 +150,226 @@ FAIL    github.com/dm03514/grokking-go/candidates-and-contexts/races    0.123s
 逻辑竞态条件是另一种完全不同的问题，本文将只关注显式的竞态条件用例。
 
 ## 解决方案
+
+目前为止，我们已经了解到什么是竞态条件，下面是一些可用的工具，用于在工程中减轻它们（竞态条件）:
+
+### 竞态检测器
+
+Go的竞态检测器支持对内存的访问进行检测，以确定内存是否发生了并发的操作。通过在`go test`工具上添加`-race`标志位来启用竞态检测器。甚至在官方的竞态检测器文档的第一行也写道： *[竞态条件](http://en.wikipedia.org/wiki/Race_condition)是最隐蔽、最难以捉摸的编程错误之一。*
+
+虽然竞态检测器是非常有用的工具，但是它是被动的，因为竞态条件一定是发生在运行时的。这就给工程师带来了负担，因为他们需要确定哪些Goroutine中可以检测出竞态条件，编写并发测试用例，然后在启用了竞态检测器的情况下执行测试。
+即使我们构建了一个具有高并发的测试用例，但是仍然不能100%保证测试用例的调用能够导致读写重叠。虽然有这种情况，但是我们也不能忽视竞态检测器的益处，因为它能够在大多数情况下检测到经竞态条件，是一个非常强大的工具。
+
+不幸的是，竞态检测器仅仅用于*检测*，而不能进行预防。
+
+让我们针对第一个示例使用竞态检测器来看看它是如何工作的。下面我们使用`-race`标志位执行显式的竞态条件的检测（[源代码](https://github.com/dm03514/grokking-go/blob/83cf3d8313a7c797c317d7b5b2d85b4df89a0401/candidates-and-contexts/races/explict_test.go#L22)）
+
+```bash$ go test -run TestExplicitRace ./races/ -v -total-requests=200 -concurrent-requests=200 -race
+=== RUN   TestExplicitRace
+handling request: 0
+handling request: 0
+handling request: 0
+handling request: 0
+==================
+WARNING: DATA RACE
+Write at 0x00c4200164e8 by goroutine 326:
+  github.com/dm03514/grokking-go/candidates-and-contexts/races.TestExplicitRace.func1.1()
+      /vagrant_data/go/src/github.com/dm03514/grokking-go/candidates-and-contexts/races/counters.go:18 +0x115
+  net/http.HndlerFunc.ServeHTTP()
+      /usr/local/go/src/net/http/server.go:1947 +0x51
+  net/http.(*ServeMux).ServeHTTP()
+      /usr/local/go/src/net/http/server.go:2340 +0x9f
+  net/http.serverHandler.ServeHTTP()
+      /usr/local/go/src/net/http/server.go:2697 +0xb9
+  net/http.(*conn).serve()
+      /usr/local/go/src/net/http/server.go:1830 +0x7dc
+Previous read at 0x00c4200164e8 by goroutine 426:
+  github.com/dm03514/grokking-go/candidates-and-contexts/races.TestExplicitRace.func1.1()
+      /vagrant_data/go/src/github.com/dm03514/grokking-go/candidates-and-contexts/races/counters.go:14 +0x5b
+  net/http.HandlerFunc.ServeHTTP()
+      /usr/local/go/src/net/http/server.go:1947 +0x51
+  net/http.(*ServeMux).ServeHTTP()
+      /usr/local/go/src/net/http/server.go:2340 +0x9f
+  net/http.serverHandler.ServeHTTP()
+      /usr/local/go/src/net/http/server.go:2697 +0xb9
+  net/http.(*conn).serve()
+      /usr/local/go/src/net/http/server.go:1830 +0x7dc
+Goroutine 326 (running) created at:
+  net/http.(*Server).Serve()
+      /usr/local/go/src/net/http/server.go:2798 +0x364
+  net/http.(*Server).ListenAndServe()
+      /usr/local/go/src/net/http/server.go:2714 +0xc4
+  net/http.ListenAndServe()
+      /usr/local/go/src/net/http/server.go:2972 +0xf6
+  github.com/dm03514/grokking-go/candidates-and-contexts/races.TestExplicitRace.func1()
+      /vagrant_data/go/src/github.com/dm03514/grokking-go/candidates-and-contexts/races/explict_test.go:36 +0xd9
+Goroutine 426 (running) created at:
+  net/http.(*Server).Serve()
+      /usr/local/go/src/net/http/server.go:2798 +0x364
+  net/http.(*Server).ListenAndServe()
+      /usr/local/go/src/net/http/server.go:2714 +0xc4
+  net/http.ListenAndServe()
+      /usr/local/go/src/net/http/server.go:2972 +0xf6
+  github.com/dm03514/grokking-go/candidates-and-contexts/races.TestExplicitRace.func1()
+      /vagrant_data/go/src/github.com/dm03514/grokking-go/candidates-and-contexts/races/explict_test.go:36 +0xd9
+==================
+```
+
+太好了！在测试开始的时候，竞态检测器就识别出了竞态条件，并给予我们提示。
+
+```bash
+WARNING: DATA RACE
+Write at 0x00c4200164e8 by goroutine 326:
+  github.com/dm03514/grokking-go/candidates-and-contexts/races.TestExplicitRace.func1.1()
+      /vagrant_data/go/src/github.com/dm03514/grokking-go/candidates-and-contexts/races/counters.go:18 +0x115
+...
+Previous read at 0x00c4200164e8 by goroutine 426:
+  github.com/dm03514/grokking-go/candidates-and-contexts/races.TestExplicitRace.func1.1()
+      /vagrant_data/go/src/github.com/dm03514/grokking-go/candidates-and-contexts/races/counters.go:14 +0x5b
+```
+
+这些行表明了测试中存在并发的读写：
+
+```go
+package races
+
+import "sync"
+
+type Counter struct {
+    count int
+}
+
+func (c *Counter) Value() int {
+    return c.count # line 14
+}
+
+func (c *Counter) Set(v int) {
+    c.count = v # line 18
+}
+```
+
+关于竞态检测器的文章有很多。使用竞态检测器的缺点在于如果使用它，我们就必须编写一些重点的测试，这样会带来一些时间上的开销。还有另外一种方法，在启用`-race`标志位的情况下，使用一小部分流量来进行金丝雀发布。
+
+### 显式的同步
+
+显式同步是通过[同步原语](https://golang.org/pkg/sync/)（如互斥锁）来保护变量的访问。显式同步让工程师承担了识别并发执行的候选项和它们将在其中执行的上下文的责任。然后他们还要求工程师知道如何编写锁定的代码来进行同步访问。
+
+这很棘手，因为变量的增加是安全的，同步的，但同时它又是不安全的。这也就是我在上面提到的，需要依赖工程师的经验。显式的内存同步访问需要预测和标识代码片段将要执行的所有*上下文*。因为我们知道我们的处理器将会被`net/http`库并发地执行，我们可以为计数器增加显式的同步，并向之后的开发人员提供 ***线程安全*** 的保证。
+
+```go
+type SynchronizedCounter struct {
+   mu *sync.Mutex
+   count int
+}
+
+func (c *SynchronizedCounter) Inc() {
+   c.mu.Lock()
+   defer c.mu.Unlock()
+
+   c.count++
+}
+
+func (c *SynchronizedCounter) Value() int {
+   c.mu.Lock()
+   defer c.mu.Unlock()
+
+   return c.count
+}
+
+func (c *SynchronizedCounter) Set(v int) {
+   c.mu.Lock()
+   defer c.mu.Unlock()
+
+   c.count = v
+}
+```
+
+现在，我们可以保证我们的方法是 ***线程安全*** 的；所有状态的变化都受互斥量的保护并且是[可序列化的](https://aphyr.com/posts/313-strong-consistency-models)。
+
+### 静态分析 （通过`go vet`)
+
+静态分析（特别是互斥量检测）有助于检测互斥量的滥用，是另一种提供给我们的被动检测工具。它并不能帮助我们直接检测一变量是否需要互斥锁，它只能检测出互斥锁是否被正确地使用。它要求工程师能够识别哪里需要互斥量，并在恰当的位置添它量，应该使用互斥量的副本，而非互斥量的引用以避免产生误用。
+
+```go
+type MisSynchronizedCounter struct {
+   mu    sync.Mutex
+   count int
+}
+
+func (c MisSynchronizedCounter) Inc() {
+   c.mu.Lock()
+   defer c.mu.Unlock()
+
+   c.count++
+}
+```
+
+`Vet`能够检测出当前使用的互斥量是拷贝还是引用：
+
+```bash
+$ go vet -copylocks ./races/counters.go
+# command-line-arguments
+races/counters.go:52: Inc passes lock by value: races.MisSynchronizedCounter contains sync.Mutex
+```
+
+`Vet`是一个重要的工具，它可以添加到如何构建的过程当中。但是还不足以识别或者检测竞态条件。
+
+### 基于设计的哲学
+
+基于正确性的设计利用了Go的安全原语和设计模式的最佳实践，来最小化出现竞态条件的可能性。它有两种常见的模式：
+
+- “监控” Goroutine
+
+- 工作池
+
+上面两者都用到Go的通道特性。基于设计的方法体现了Go的箴言：“[通过通道来共享内存](https://blog.golang.org/share-memory-by-communicating)”。下面展示了在重构计数器并将其封装在监控Goroutine之后会发生什么（[源代码](https://github.com/dm03514/grokking-go/pull/3/files#diff-8222898e088ed9fee100b22308c43685R22)）:
+
+```go
+countChan := make(chan struct{})
+go func() {
+   for range countChan {
+      reqCount.Inc()
+      fmt.Printf("handling request: %d\n", reqCount.Value())
+   }
+}()
+```
+
+这非常棒，因为这是一种混合方法： 它运行调度并发的操作，但是并发操作是唯一需要访问`reqCount`的东西。这就意味着`reqCount`不再需要同步。（除了在`countChan`关闭后主测试线程因为断言需要访问它之外。正如我们看到的那样，程序的行为与预期的一致，并没有产生任何的竞态条件 （[源码](https://github.com/dm03514/grokking-go/pull/3/files#diff-8222898e088ed9fee100b22308c43685R14)））。
+
+```bash
+$ go test -run TestDesignNoRace ./races/ -v -total-requests=200 -concurrent-requests=200 -race
+handling request: 1
+...
+handling request: 190
+handling request: 191
+handling request: 192
+handling request: 193
+handling request: 194
+handling request: 195
+handling request: 196
+handling request: 197
+handling request: 198
+handling request: 199
+handling request: 200
+Num Requests TO Make: 200
+Final Count: 200
+--- PASS: TestDesignNoRace (0.64s)
+PASS
+ok      github.com/dm03514/grokking-go/candidates-and-contexts/races    1.691s
+```
+
+这是一个非常强大的模式，并且可以扩展为工作池模式。想象以下，我们不是计数而是将数据写入到数据库。我们可以派生出许多的Goroutines来限制某一次可能会发生的最大的并发插入数量（假设是10次），并使得它们共享同一个通道。每个Goroutine都可以拥有自己的资源，不会与其他的Goroutine共享。这就允许了每个单独的Goroutine拥有它自己的小宇宙，而不需要同步。每个Goroutine都有自己的同步空间，但是也需要通过外部的调度来并发地运行。
+
+### 分析
+
+在并发的 ***上下文*** 中使用第三方或者外部组件时，需要进行分析。Go约定的是假定所有东西都是线程不安全的，除非提供显式的保证。
+
+这类分析常见的候选对象是：
+
+- DB 连接
+
+- TCP 连接
+
+- 第三方SDK/驱动
+
+- 在Goroutines之间共享的任何第三方组件
