@@ -1,3 +1,5 @@
+> 译自：[https://blog.gopheracademy.com/advent-2018/fmt/](https://blog.gopheracademy.com/advent-2018/fmt/).
+
 # 深入理解`fmt`包
 
 我们经常会使用`fmt`包，但是却没有思考过它的实现。我们会在这里使用一个`fmt.Printf`，又会在那里使用一个`fmt.Sprintf`。但是，如果你仔细研究下这个包，你会发现很多有趣有用的东西。
@@ -108,11 +110,11 @@ func main() {
 
 ## `fmt.Stringer` & `fmt.Formatter`
 
-有时候你希望能够精细化地控制你的对象如何被打印。例如，当向用户展示错误时，你可能需要的是一个字符串的表示，而当向日志系统写入时，你则希望是更加详细的字符串表示。
+有时候你希望能够精细化地控制你的对象如何被打印。例如，当向用户展示错误时，你可能需要的是一个字符串的表示，而当向日志系统写入时，你则希望是更加详细的字符串表示。
 
 为了控制你的对象如何被打印，你可以实现`fmt.Formatter`接口，也可以选择实现`fmt.Stringer`接口。
 
-使用`fmt.Formatter`接口比较好的例子是`github.com/pkg/errors`这个非常棒的库。假设你需要加载我们的配置文件，但是你有一个错误。你可以向用户打印一个简短的错误（又或者在API中返回），并在日志中输出更加详细的错误。
+使用`fmt.Formatter`接口比较好的例子是`github.com/pkg/errors`这个非常棒的库。假设你需要加载我们的配置文件，但是你有一个错误。你可以向用户打印一个简短的错误（又或者在API中返回），并在日志中输出更加详细的错误。
 
 ```go
 cfg, err := loadConfig("/no/such/config.toml")
@@ -172,7 +174,7 @@ func (ai *AuthInfo) String() string {
 
 现在`fmt.Formatter`获取到了占位符的`fmt.State`和符文。`fmt.State`实现了`io.Writer`接口，使得你可以直接写入它。
 
-想要了解结构体中所有的可用字段，可以使用`reflect`包。这将确保你的代码即使在`AuthInfo`字段更改后也能正常工作。
+想要了解结构体中所有的可用字段，可以使用`reflect`包。这将确保你的代码即使在`AuthInfo`字段更改后也能正常工作。
 
 ```go
 var authInfoFields []string
@@ -255,13 +257,3 @@ ai %#v: *main.AuthInfo{ACL:3 APIKey:***** Login:daffy}
 ## 结论
 
 除了一些琐碎的用途外，`fmt`包还有许多其他的功能。一旦你熟悉了这些功能，我相信你会发现它们有很多有趣的用途。你可以在[此处](https://github.com/gopheracademy/gopheracademy-web/blob/master/content/advent-2018/fmt.go)查看本文的代码。
-
----
-
-via: [https://blog.gopheracademy.com/advent-2018/fmt/](https://blog.gopheracademy.com/advent-2018/fmt/)
-
-作者：[Miki Tebeka](https://blog.gopheracademy.com/advent-2018/fmt/)
-译者：[barryz](https://github.com/barryz)
-校对：[校对者ID](https://github.com/校对者ID)
-
-本文由 [GCTT](https://github.com/studygolang/GCTT) 原创编译，[Go 中文网](https://studygolang.com/) 荣誉推出
