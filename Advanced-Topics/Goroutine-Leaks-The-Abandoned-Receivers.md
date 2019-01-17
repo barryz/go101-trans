@@ -2,7 +2,7 @@
 
 ## 介绍
 
-Goroutine泄漏在Go程序中是一种非常常见的内存泄漏的案例。在我[之前的博客中](https://www.ardanlabs.com/blog/2018/11/goroutine-leaks-the-forgotten-sender.html)，我已经介绍过Goroutine泄漏，并列举了一个Go开发人员时常会犯错的例子。J今天，我们会继续这个话题，本文会介绍另外一种可能会导致Goroutine泄漏的场景。
+Goroutine泄漏在Go程序中是一种非常常见的内存泄漏的案例。在我[之前的博客中](https://www.ardanlabs.com/blog/2018/11/goroutine-leaks-the-forgotten-sender.html)，我已经介绍过Goroutine泄漏，并列举了一个Go开发人员时常会犯错的例子。今天，我们会继续这个话题，本文会介绍另外一种可能会导致Goroutine泄漏的场景。
 
 ## 泄漏：被遗弃的通道接收者
 
@@ -29,8 +29,7 @@ ___在这个例子中，你将会看到有多个Goroutine阻塞等待从一个�
 46     input := make(chan string, total)
 47     for _, record := range records {
 48         input <- record
-49
-       }
+49     }
 50     // close(input) // What if we forget to close the channel?
 51
 52     // Start a pool of workers to process input and send
@@ -41,8 +40,7 @@ ___在这个例子中，你将会看到有多个Goroutine阻塞等待从一个�
 57     workers := runtime.NumCPU()
 58     for i := 0; i < workers; i++ {
 59         go worker(i, input, output)
-60
-       }
+60     }
 61
 62     // Receive from output the expected number of times. If 10
 63     // records went in then 10 will come out.
@@ -50,10 +48,8 @@ ___在这个例子中，你将会看到有多个Goroutine阻塞等待从一个�
 65     for i := 0; i < total; i++ {
 66         result := <-output
 67         fmt.Printf("[result  ]: output %s\n", result)
-68
-       }
-69
-   }
+68     }
+69  }
 70
 71 // worker is the work the program wants to do concurrently.
 72 // This is a blog post so all the workers do is capitalize a
@@ -65,16 +61,15 @@ ___在这个例子中，你将会看到有多个Goroutine阻塞等待从一个�
 78     for v := range input {
 79         fmt.Printf("[worker %d]: input %s\n", id, v)
 80         output <- strings.ToUpper(v)
-81
-       }
+81     }
 82     fmt.Printf("[worker %d]: shutting down\n", id)
 83
 }
 ```
 
-在清单1的第39行，我们定义了一个名为`processRecords`的函数，它接收一个`[]string`类型的参数。在第46行，我们创建了一个名为`input`的缓冲通道。然后在第47、48行运行了一个循环从`records`中取出每个值分别插入`input`通道。该通道在创建时已经预分配了足够的容量，所以向该通道发送值的操作并不会阻塞。这个通道可以看作是多个Goroutine分发值的管道。
+在清单1的第39行，我们定义了一个名为`processRecords`的函数，它接收一个`[]string`类型的参数。在第46行，我们创建了一个名为`input`的缓冲通道。然后在第47、48行运行一个循环从`records`中分别取出每个值并发送至`input`通道。该通道在创建时已经预分配了足够的容量，所以向该通道发送值的操作并不会阻塞。这个通道可以看作是多个Goroutine分发值的管道。
 
-然后在第56-60行，该程序创建了一些Goroutines分别从该管道上接收值以进行各自的工作。在第56行，创建了一个名为`output`的缓冲通道；这个通道用于各Goroutine向其发送值。第57-59行则运行了一个循环，创建了`runtime.NumCPU()`个Goroutines。`input`，`output`通道同时和局部变量`i`一同传递给由单独Goroutine运行的`worker`函数。
+然后在第56-60行，该程序创建了一些Goroutines分别从该管道上接收值以进行各自的工作。在第56行，我们创建了一个名为`output`的缓冲通道；这个通道用于各Goroutine向其发送值。第57-59行则运行了一个循环，创建了`runtime.NumCPU()`个Goroutines。`input`，`output`通道同时和局部变量`i`一同传递给由单独Goroutine运行的`worker`函数。
 
 `worker`函数的定义在第77行。该函数的签名定义了一个类型`<- chan string`的`input`入参，这表示该参数是一个仅接收通道。而类型为`chan <- string`的`output`入参则表明其是一个仅发送通道。
 
@@ -82,7 +77,7 @@ ___在这个例子中，你将会看到有多个Goroutine阻塞等待从一个�
 
 回到`processRecords`函数，函数已经执行到第65行并开始运行另一个循环。该循环迭代`output`通道并接收该通道上的值。在第66行，该函数使用当前函数所在的Goroutine从`output`通道中接收值。而接收到的值将会在第67行打印出来。当所有值接收完毕，并打印之后，该循环就会终止。
 
-表面上看起来，运行此程序来转换数据似乎能正常工作。但实际上，该程序泄漏了很多的Goroutines。该程序根本执行不到82行来宣告`worker`函数已经执行完毕。甚至在`processRecords`函数返回后，每个`worker`Goroutine仍然在第78行等待`iuput`通道。在一个通道上`range`迭代接收值，___直到该通道关闭且没有值之后___。问题就在于该程序没有关闭`input`通道。
+表面上看起来，运行此程序来转换数据似乎能正常工作。但实际上，该程序泄漏了一些Goroutines。该程序根本执行不到82行来宣告`worker`函数已经执行完毕。甚至在`processRecords`函数返回后，每个`worker`Goroutine仍然在第78行等待`iuput`通道。在一个通道上`range`迭代接收值，___直到该通道关闭且没有值之后___。问题就在于该程序没有关闭`input`通道。
 
 ## 修复：通道信号完成
 
@@ -97,8 +92,7 @@ ___在这个例子中，你将会看到有多个Goroutine阻塞等待从一个�
 46     input := make(chan string, total)
 47     for _, record := range records {
 48         input <- record
-49
-       }
+49     }
 50     close(input)
 ```
 
